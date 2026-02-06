@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="14" fill="#0a0a0b"/>
+  <g transform="translate(32, 32)">
+    <!-- Hexagon outline -->
+    <path d="M0,-22 L19.05,-11 L19.05,11 L0,22 L-19.05,11 L-19.05,-11 Z" stroke="#f59e0b" stroke-width="2.5" fill="none" opacity="0.9"/>
+    <!-- Eye shape -->
+    <ellipse cx="0" cy="0" rx="12" ry="7" stroke="#f59e0b" stroke-width="2" fill="none" opacity="0.8"/>
+    <!-- Iris -->
+    <circle cx="0" cy="0" r="3.5" fill="#f59e0b" opacity="0.9"/>
+    <!-- Pupil -->
+    <circle cx="0" cy="0" r="1.5" fill="#0a0a0b"/>
+  </g>
+</svg>

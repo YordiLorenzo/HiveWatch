@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  --color-hive-bg: #0a0a0b;
+  --color-hive-surface: #111113;
+  --color-hive-surface-hover: #161618;
+  --color-hive-border: rgba(39, 39, 42, 0.4);
+}
+
+/* Thin styled scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #27272a;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #3f3f46;
+}
+
+/* Selection */
+::selection {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fafafa;
+}
