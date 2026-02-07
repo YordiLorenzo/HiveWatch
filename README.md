@@ -4,18 +4,18 @@
 
 <h1 align="center">HiveWatch</h1>
 
-<p align="center">Real-time monitoring dashboard for Claude Code agent teams.</p>
+<p align="center">Real-time monitoring dashboard for Claude Code agent teams and solo sessions.</p>
 
 ---
 
 ## What it does
 
-When you run Claude Code with the team feature (multiple AI agents collaborating on tasks), HiveWatch gives you a live web dashboard showing:
+HiveWatch gives you a live web dashboard for monitoring Claude Code activity:
 
-- **Agent status** — which agents are active, idle, or stuck, with their current task
-- **Task board** — kanban view of pending, in-progress, and completed tasks with owner assignments and dependency chains
-- **Live activity stream** — real-time tool calls (Read, Edit, Bash, Grep, etc.) and reasoning from each agent, extracted from JSONL conversation transcripts
-- **Message feed** — inter-agent communication with parsed structured messages (task assignments, shutdown requests, idle notifications)
+- **Team monitoring** — agent status (active/idle/stuck), task boards with dependency chains, inter-agent messages, and live tool call streams
+- **Session monitoring** — discovers solo Claude Code sessions, shows project, branch, prompt, and subagent hierarchies with per-agent activity feeds
+- **Rich activity formatting** — tool-specific renderers for Edit (diffs), Bash (commands), Read/Write (file ops), Grep/Glob (search), Task (delegation), with expandable reasoning and markdown rendering
+- **Persistence** — atomic snapshots preserve disbanded teams and ended sessions for up to 7 days, with startup reconciliation
 - **Agent detail view** — per-agent system prompt, assigned tasks, full message history, and live activity
 
 ## Quick start
@@ -36,7 +36,7 @@ npm run server
 npm run dev
 ```
 
-Open `http://localhost:5173`. The dashboard auto-discovers teams from `~/.claude/teams/`.
+Open `http://localhost:5173`. The dashboard auto-discovers teams from `~/.claude/teams/` and solo sessions from `~/.claude/projects/*/sessions-index.json`.
 
 ## Agent mapping hooks (recommended)
 
@@ -122,9 +122,11 @@ HiveWatch reads Claude Code's file-based IPC system directly from disk:
 | Agent inboxes | `~/.claude/teams/{name}/inboxes/{agent}.json` | Messages between agents |
 | Task files | `~/.claude/tasks/{name}/{id}.json` | Task status, ownership, dependencies |
 | Conversation transcripts | `~/.claude/projects/{path}/{sessionId}/subagents/*.jsonl` | Tool calls, reasoning, timestamps |
+| Sessions index | `~/.claude/projects/{path}/sessions-index.json` | Session metadata for solo session discovery |
 | Hook events | `~/.claude/hivewatch/events.jsonl` | Agent ID to member name mapping |
+| Snapshots | `~/.claude/hivewatch/snapshots/` | Persisted team and session state |
 
-The Express server watches these files with chokidar and pushes updates via WebSocket. The JSONL tail reader efficiently reads the last 32KB of each agent's transcript to extract recent tool calls without loading entire files.
+The Express server watches these files with chokidar and pushes updates via WebSocket. The JSONL tail reader uses adaptive chunk sizing (64KB to 256KB) to efficiently extract recent tool calls without loading entire transcript files.
 
 ### Agent types
 
@@ -137,20 +139,56 @@ Claude Code supports two backend types for team members:
 
 Both types write their JSONL transcripts to the same `subagents/` directory under the lead session.
 
+### Session monitoring
+
+HiveWatch discovers solo Claude Code sessions (non-team) by scanning `sessions-index.json` files every 5 seconds. Active sessions are those modified within the last 2 hours.
+
+For each session, HiveWatch detects:
+- Project path and git branch
+- Initial prompt
+- Subagent hierarchies via `{sessionId}/subagents/` directories
+- Agent types resolved from hook events
+
+Session activity is fetched on-demand via REST (`GET /api/sessions/:id/activity`) with a 3-tier fallback: live data, direct JSONL scan, or snapshot. The frontend polls activity at 3-second intervals on the detail page.
+
+Ended sessions are preserved from snapshots alongside disbanded teams.
+
 ## Architecture
 
 ```
 ~/.claude/teams/     ─┐
-~/.claude/tasks/      ├─→  Express server (port 3847)  ──WebSocket──→  React frontend
-~/.claude/projects/  ─┘    (chokidar + 2s polling)                     (Vite dev server)
-~/.claude/hivewatch/ ─┘
+~/.claude/tasks/      ├─→  server/ (Express :3847)  ──WebSocket──→  React frontend (:5173)
+~/.claude/projects/  ─┘    chokidar + polling                      Vite dev proxy → :3847
+~/.claude/hivewatch/ ─┘    ↓ snapshots
+                     ~/.claude/hivewatch/snapshots/
 ```
 
-**Server**: Express + WebSocket + chokidar file watcher. Reads team configs, tasks, inboxes on change. Polls JSONL transcripts every 2 seconds for activity updates.
+**Server**: Modular Express backend — `server/index.ts` is a thin entry point, with logic split across `constants.ts`, `routes.ts`, `websocket.ts`, and 7 reader modules in `server/readers/`. File watching via chokidar for config/task/inbox changes. Polling at 2s for activity, 5s for disbandment detection and session discovery, 1h for snapshot pruning. Graceful shutdown on SIGTERM/SIGINT.
 
-**Frontend**: React 19 + TypeScript + Tailwind CSS v4. Three-column team view with tabbed Activity/Messages panel. WebSocket for live updates with auto-reconnect.
+**Frontend**: React 19 + TypeScript + Tailwind CSS v4. Four routes: Dashboard, TeamDetail, AgentDetail, SessionDetail. WebSocket for live team updates with auto-reconnect. REST polling for session activity. Data survival via useRef caching when teams or sessions disappear.
+
+**Persistence**: On every chokidar change, the server writes atomic snapshots to `~/.claude/hivewatch/snapshots/` for both teams and sessions. `reconcileSnapshots()` runs at startup to restore state. Old snapshots auto-prune after 7 days.
 
 **Hooks**: Shell script registered in Claude Code settings. Captures agent spawn/stop events and writes them to `~/.claude/hivewatch/events.jsonl`. The server correlates `SubagentStart` events (which have the agent hash ID) with `PostToolUse/Task` events (which have the member name) by matching session IDs and timestamps.
+
+## REST API
+
+| Endpoint | Response |
+|---|---|
+| `GET /api/teams` | `{ live, disbanded }` |
+| `GET /api/teams/:name` | Single team (snapshot fallback) |
+| `GET /api/teams/:name/tasks` | Team tasks |
+| `GET /api/teams/:name/inboxes` | All agent inboxes |
+| `GET /api/teams/:name/inboxes/:agent` | Single agent inbox |
+| `GET /api/teams/:name/activity` | Team activity feed |
+| `GET /api/stats` | Aggregate statistics |
+| `GET /api/history` | Recent team history |
+| `GET /api/sessions` | `{ active, ended }` |
+| `GET /api/sessions/:id/activity` | Session activity (3-tier fallback) |
+
+## WebSocket events
+
+`initial_state`, `team_updated`, `task_updated`, `inbox_updated`, `activity_updated`, `team_disbanded`, `session_updated`, `session_ended`
 
 ## Stack
 

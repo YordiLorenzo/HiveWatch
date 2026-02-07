@@ -5,6 +5,7 @@ import { PROJECTS_DIR } from "../constants.js";
 import { getTeamConfig } from "./team.js";
 import { getHookMappings, clearHookMappingCache } from "./hook-mapping.js";
 import { identifyMember } from "./member-identify.js";
+import { getSnapshotActivity } from "./snapshot.js";
 
 export function encodeProjectPath(cwdPath: string): string {
   return cwdPath.replace(/[^a-zA-Z0-9-]/g, "-");
@@ -247,6 +248,16 @@ export function getTeamActivity(teamName: string): Record<string, AgentActivity[
 
     allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     result[member.name] = allActivities.slice(0, 20);
+  }
+
+  // Merge departed members' activity from snapshot so it persists
+  // after agents leave the team but before full disbandment
+  const snapshotActivity = getSnapshotActivity(teamName);
+  const currentNames = new Set(config.members.map((m) => m.name));
+  for (const [name, activities] of Object.entries(snapshotActivity)) {
+    if (!currentNames.has(name) && activities.length > 0) {
+      result[name] = activities;
+    }
   }
 
   return result;
