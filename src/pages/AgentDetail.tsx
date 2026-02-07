@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronRight, Inbox, ListTodo, Terminal, Clock, Activity } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, Inbox, ListTodo, Terminal, Clock, Activity, XCircle } from 'lucide-react'
 import type { HiveData } from '../hooks/useHiveData'
-import type { InboxMessage } from '../../shared/types'
+import type { InboxMessage, TeamOverview } from '../../shared/types'
 import StatusBadge from '../components/StatusBadge'
 import MessageBubble from '../components/MessageBubble'
 import ActivityFeed from '../components/ActivityFeed'
+import Markdown from '../components/Markdown'
+import { filterRealTasks } from '../utils/format'
 
 function formatJoinedDate(ts: number): string {
   return new Date(ts).toLocaleString('en-US', {
@@ -20,6 +22,16 @@ export default function AgentDetail({ data }: { data: HiveData }) {
   const { team: teamName, name: agentName } = useParams<{ team: string; name: string }>()
   const [promptExpanded, setPromptExpanded] = useState(false)
 
+  // Cache last known team data so agent view survives team cleanup
+  const cachedTeamRef = useRef<TeamOverview | null>(null)
+  const liveTeamData = teamName ? data.teams[teamName] : undefined
+  const disbandedEntry = teamName ? data.disbandedTeams[teamName] : undefined
+  const isDisbanded = !liveTeamData && (!!disbandedEntry || cachedTeamRef.current !== null)
+
+  useEffect(() => {
+    if (liveTeamData) cachedTeamRef.current = liveTeamData
+  }, [liveTeamData])
+
   if (data.loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -28,7 +40,7 @@ export default function AgentDetail({ data }: { data: HiveData }) {
     )
   }
 
-  const teamData = teamName ? data.teams[teamName] : undefined
+  const teamData = liveTeamData || disbandedEntry?.overview || cachedTeamRef.current
   if (!teamData) {
     return (
       <div className="py-10 text-center">
@@ -55,7 +67,8 @@ export default function AgentDetail({ data }: { data: HiveData }) {
     )
   }
 
-  const assignedTasks = teamData.tasks.filter((t) => t.owner === agentName)
+  const assignedTasks = filterRealTasks(teamData.tasks, teamData.config.members)
+    .filter((t) => t.owner === agentName)
 
   const inbox: InboxMessage[] = (agentName ? teamData.inboxes[agentName] ?? [] : [])
     .slice()
@@ -63,14 +76,21 @@ export default function AgentDetail({ data }: { data: HiveData }) {
 
   return (
     <div className="space-y-6">
+      {isDisbanded && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/30 text-zinc-400 text-xs">
+          <XCircle className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+          Team disbanded — showing last known state
+        </div>
+      )}
+
       {/* HEADER */}
       <div>
         <Link
-          to={`/team/${teamName}`}
+          to={isDisbanded ? '/' : `/team/${teamName}`}
           className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-300 transition-colors mb-4"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          {teamName}
+          {isDisbanded ? 'Dashboard' : teamName}
         </Link>
 
         <div className="flex items-start gap-4">
@@ -166,7 +186,7 @@ export default function AgentDetail({ data }: { data: HiveData }) {
                   <StatusBadge status={task.status} />
                 </div>
                 {task.description && (
-                  <p className="text-[11px] text-zinc-500 whitespace-pre-wrap">{task.description}</p>
+                  <Markdown content={task.description} className="text-[11px] text-zinc-500" />
                 )}
               </div>
             ))}

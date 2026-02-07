@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { TeamOverview, StatsCache, WsEvent, AgentActivity } from '../../shared/types'
+import type { TeamOverview, StatsCache, WsEvent, AgentActivity, SoloSession } from '../../shared/types'
 
 export interface HiveData {
   teams: Record<string, TeamOverview>
+  disbandedTeams: Record<string, { overview: TeamOverview; disbandedAt: string }>
+  sessions: SoloSession[]
+  endedSessions: SoloSession[]
   stats: StatsCache | null
   activities: Record<string, Record<string, AgentActivity[]>>
   loading: boolean
@@ -11,6 +14,11 @@ export interface HiveData {
 
 export function useHiveData(): HiveData {
   const [teams, setTeams] = useState<Record<string, TeamOverview>>({})
+  const [disbandedTeams, setDisbandedTeams] = useState<
+    Record<string, { overview: TeamOverview; disbandedAt: string }>
+  >({})
+  const [sessions, setSessions] = useState<SoloSession[]>([])
+  const [endedSessions, setEndedSessions] = useState<SoloSession[]>([])
   const [stats, setStats] = useState<StatsCache | null>(null)
   const [activities, setActivities] = useState<Record<string, Record<string, AgentActivity[]>>>({})
   const [loading, setLoading] = useState(true)
@@ -48,9 +56,20 @@ export function useHiveData(): HiveData {
 
       switch (msg.type) {
         case 'initial_state': {
-          const { teams: teamList, stats: statsData } = msg.data as {
+          const {
+            teams: teamList,
+            stats: statsData,
+            activities: activityData,
+            disbandedTeams: disbandedData,
+            sessions: sessionsData,
+            endedSessions: endedSessionsData,
+          } = msg.data as {
             teams: TeamOverview[]
             stats: StatsCache | null
+            activities?: Record<string, Record<string, AgentActivity[]>>
+            disbandedTeams?: Record<string, { overview: TeamOverview; disbandedAt: string }>
+            sessions?: SoloSession[]
+            endedSessions?: SoloSession[]
           }
           const teamsMap: Record<string, TeamOverview> = {}
           for (const t of teamList) {
@@ -58,12 +77,23 @@ export function useHiveData(): HiveData {
           }
           setTeams(teamsMap)
           setStats(statsData)
+          if (activityData) setActivities(activityData)
+          if (disbandedData) setDisbandedTeams(disbandedData)
+          if (sessionsData) setSessions(sessionsData)
+          if (endedSessionsData) setEndedSessions(endedSessionsData)
           setLoading(false)
           break
         }
         case 'team_updated': {
           const teamData = msg.data as TeamOverview
           setTeams((prev) => ({ ...prev, [msg.team!]: teamData }))
+          // If this team was in disbanded, remove it (it's back)
+          setDisbandedTeams((prev) => {
+            if (!prev[msg.team!]) return prev
+            const next = { ...prev }
+            delete next[msg.team!]
+            return next
+          })
           break
         }
         case 'task_updated': {
@@ -89,6 +119,49 @@ export function useHiveData(): HiveData {
           setActivities((prev) => ({ ...prev, [msg.team!]: activityData }))
           break
         }
+        case 'session_updated': {
+          const sessionsData = msg.data as SoloSession[]
+          setSessions(sessionsData)
+          // If a previously ended session reappears, remove it from endedSessions
+          const activeIds = new Set(sessionsData.map((s) => s.sessionId))
+          setEndedSessions((prev) => {
+            const filtered = prev.filter((s) => !activeIds.has(s.sessionId))
+            return filtered.length === prev.length ? prev : filtered
+          })
+          break
+        }
+        case 'session_ended': {
+          const endedSession = msg.data as SoloSession
+          setEndedSessions((prev) => {
+            // Avoid duplicates
+            if (prev.some((s) => s.sessionId === endedSession.sessionId)) return prev
+            return [endedSession, ...prev]
+          })
+          break
+        }
+        case 'team_disbanded': {
+          const { overview, disbandedAt, activity } = msg.data as {
+            overview: TeamOverview
+            disbandedAt: string
+            activity?: Record<string, AgentActivity[]>
+          }
+          // Move from live to disbanded
+          setTeams((prev) => {
+            if (!prev[msg.team!]) return prev
+            const next = { ...prev }
+            delete next[msg.team!]
+            return next
+          })
+          setDisbandedTeams((prev) => ({
+            ...prev,
+            [msg.team!]: { overview, disbandedAt },
+          }))
+          // Preserve activity snapshot
+          if (activity) {
+            setActivities((prev) => ({ ...prev, [msg.team!]: activity }))
+          }
+          break
+        }
       }
     }
   }, [])
@@ -101,5 +174,5 @@ export function useHiveData(): HiveData {
     }
   }, [connect])
 
-  return { teams, stats, activities, loading, connected }
+  return { teams, disbandedTeams, sessions, endedSessions, stats, activities, loading, connected }
 }

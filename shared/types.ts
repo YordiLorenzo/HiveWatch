@@ -43,7 +43,18 @@ export interface InboxMessage {
   color?: string;
   read: boolean;
   // System message fields
-  type?: "idle_notification" | "shutdown_approved" | "task_assignment" | "shutdown_request";
+  type?:
+    | "idle_notification"
+    | "shutdown_approved"
+    | "task_assignment"
+    | "shutdown_request"
+    | "message"
+    | "broadcast"
+    | "plan_approval_request"
+    | "plan_approval_response"
+    | "shutdown_response";
+  content?: string;
+  recipient?: string;
   idleReason?: string;
   requestId?: string;
   taskId?: string;
@@ -108,13 +119,50 @@ export interface AgentActivity {
   summary?: string;
 }
 
+// Solo session monitoring
+export interface SessionSubagent {
+  agentId: string;
+  agentType?: string;
+  lastModified: number;
+}
+
+export interface SoloSession {
+  sessionId: string;
+  projectDir: string;
+  projectPath: string;
+  projectName: string;
+  firstPrompt: string;
+  gitBranch?: string;
+  created: string;
+  modified: string;
+  messageCount: number;
+  subagents: SessionSubagent[];
+}
+
+// Snapshot metadata for persistence
+export interface SnapshotMeta {
+  teamName: string;
+  snapshotAt: string;
+  disbandedAt: string | null;
+  configVersion: number;
+}
+
+export interface SessionSnapshotMeta {
+  sessionId: string;
+  snapshotAt: string;
+  endedAt: string | null;
+}
+
 // WebSocket event types
 export type WsEventType =
   | "team_updated"
   | "task_updated"
   | "inbox_updated"
   | "initial_state"
-  | "activity_updated";
+  | "activity_updated"
+  | "team_disbanded"
+  | "session_updated"
+  | "session_ended";
 
 export interface WsEvent {
   type: WsEventType;
