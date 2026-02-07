@@ -49,16 +49,45 @@ function readJsonSafe<T>(filePath: string): T | null {
 // --- Write snapshots ---
 
 export function writeConfigSnapshot(teamName: string, config: TeamConfig): void {
+  // Merge: preserve departed members so they survive in the snapshot
+  const existing = readJsonSafe<TeamConfig>(path.join(teamDir(teamName), "config.json"));
+  if (existing) {
+    const currentNames = new Set(config.members.map((m) => m.name));
+    const departed = existing.members.filter((m) => !currentNames.has(m.name));
+    if (departed.length > 0) {
+      config = { ...config, members: [...config.members, ...departed] };
+    }
+  }
   writeJsonAtomic(path.join(teamDir(teamName), "config.json"), config);
   updateMeta(teamName, { configVersion: config.members.length });
 }
 
 export function writeTasksSnapshot(teamName: string, tasks: Task[]): void {
+  // Merge: keep tasks from snapshot that aren't in live data
+  const existing = readJsonSafe<Task[]>(path.join(teamDir(teamName), "tasks.json"));
+  if (existing && existing.length > 0 && tasks.length < existing.length) {
+    const liveIds = new Set(tasks.map((t) => t.id));
+    const departed = existing.filter((t) => !liveIds.has(t.id));
+    if (departed.length > 0) {
+      tasks = [...tasks, ...departed];
+    }
+  }
   writeJsonAtomic(path.join(teamDir(teamName), "tasks.json"), tasks);
   updateMeta(teamName);
 }
 
 export function writeInboxSnapshot(teamName: string, inboxes: Record<string, InboxMessage[]>): void {
+  // Merge: preserve departed agents' inboxes
+  const existing = readJsonSafe<Record<string, InboxMessage[]>>(
+    path.join(teamDir(teamName), "inboxes.json"),
+  );
+  if (existing) {
+    for (const [agent, messages] of Object.entries(existing)) {
+      if (!(agent in inboxes) && messages.length > 0) {
+        inboxes[agent] = messages;
+      }
+    }
+  }
   writeJsonAtomic(path.join(teamDir(teamName), "inboxes.json"), inboxes);
   updateMeta(teamName);
 }
